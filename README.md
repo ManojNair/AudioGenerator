@@ -24,7 +24,7 @@ AZURE_SPEECH_REGION=your_speech_region
 
 Run the podcast generator:
 ```bash
-python3 podcast_v1.py
+python3 podcast_v1_sk.py
 ```
 
 The script will:
