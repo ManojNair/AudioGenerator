@@ -13,6 +13,9 @@ from semantic_kernel.functions import KernelArguments
 # Azure Speech imports
 from azure.cognitiveservices.speech import SpeechConfig, SpeechSynthesizer, AudioConfig, ResultReason, CancellationReason, SpeechSynthesisOutputFormat
 
+# Azure OpenAI imports for vision
+from openai import AzureOpenAI
+
 # Load environment variables
 from dotenv import load_dotenv
 load_dotenv()
@@ -47,11 +50,16 @@ class ImageAnalysisPlugin:
     
     def __init__(self, kernel: Kernel):
         self.kernel = kernel
+        # Initialize Azure OpenAI client for vision analysis
+        self.vision_client = AzureOpenAI(
+            api_key=api_key,
+            api_version=api_version,
+            azure_endpoint=azure_endpoint
+        )
     
-    @staticmethod
-    def describe_image(local_image_path: str) -> str:
+    def describe_image(self, local_image_path: str) -> str:
         """
-        Analyzes and describes images in detail.
+        Analyzes and describes images in detail using Azure OpenAI's vision API.
         Provide the full path to the image file you want to describe.
         """
         try:
@@ -75,13 +83,60 @@ class ImageAnalysisPlugin:
             mime_type = MIME_TYPES.get(extension, "application/octet-stream")
             print(f"Using MIME type: {mime_type}")
             
-            # For now, return a placeholder since we need to implement image analysis
-            # In a full implementation, you would use Azure OpenAI's vision capabilities
-            return f"Image file loaded successfully: {image_path.name}, Size: {file_size} bytes, Type: {mime_type}. This appears to be a business intelligence dashboard showing sales data across different states with year-over-year growth metrics."
+            # Use Azure OpenAI vision API to analyze the image
+            print("Analyzing image with Azure OpenAI vision API...")
+            
+            # Create the vision analysis prompt
+            vision_prompt = """
+            Analyze this PowerBI dashboard image in detail. Focus on:
+            1. What type of data is being displayed (business metrics, educational data, etc.)
+            2. Key performance indicators and their values
+            3. Charts, graphs, and visualizations present
+            4. Any trends or patterns visible in the data
+            5. The overall purpose and context of this dashboard
+            
+            Provide a comprehensive, factual description that captures all the important data points and visual elements.
+            """
+            
+            # Call Azure OpenAI vision API
+            response = self.vision_client.chat.completions.create(
+                model=deployment_name,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": vision_prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:{mime_type};base64,{img_data}"
+                                }
+                            }
+                        ]
+                    }
+                ],
+                max_tokens=1000,
+                temperature=0.1  # Low temperature for factual analysis
+            )
+            
+            # Extract the analysis result
+            if response.choices and len(response.choices) > 0:
+                image_description = response.choices[0].message.content
+                print(f"Vision API analysis completed successfully")
+                return image_description
+            else:
+                print("Warning: Vision API returned no content, using fallback description")
+                return f"Image file loaded successfully: {image_path.name}, Size: {file_size} bytes, Type: {mime_type}. Unable to analyze content with vision API."
             
         except Exception as e:
-            print(f"Error in tool: {str(e)}")
-            return f"Error processing image: {str(e)}"
+            print(f"Error in vision analysis: {str(e)}")
+            # Fallback to basic file info if vision API fails
+            try:
+                image_path = Path(local_image_path)
+                file_size = os.path.getsize(image_path) if image_path.exists() else 0
+                return f"Image file loaded successfully: {image_path.name}, Size: {file_size} bytes. Vision analysis failed: {str(e)}"
+            except Exception as fallback_error:
+                return f"Error processing image: {str(e)}. Fallback also failed: {str(fallback_error)}"
 
 class SSMLPlugin:
     """Plugin for SSML formatting and speech synthesis"""
